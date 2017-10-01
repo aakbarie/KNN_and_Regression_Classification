@@ -1,0 +1,373 @@
+---
+title: "Classification with linear Regression and K-NN"
+output:
+  flexdashboard::flex_dashboard:
+    navbar:
+    - align: right
+      href: https://web.stanford.edu/~hastie/ElemStatLearn/
+      title: More Help
+    orientation: columns
+    vertical_layout: fill
+resource_files:
+- data/zip_test.gz
+- data/zip_train.gz
+- data/zip_test.gz
+- data/zip_train.gz
+- data/zip_train.gz
+- data/zip_test.gz
+- data/zip_train.gz
+- data/zip_test.gz
+runtime: shiny
+autor: Akbar Akbari Esfahani
+---
+
+
+
+Linear Regression Classification
+=======================================================================
+
+```{r setup, include=FALSE}
+#install.packages("nlme")
+library(flexdashboard)
+library(tidyverse)
+library(ggfortify)
+library(class)
+library(caret)
+library(PerformanceAnalytics)
+library(shiny)
+require(e1071)
+```
+
+Input {.sidebar}
+-----------------------------------------------------------------------
+
+### Input Selection
+```{r}
+numericInput('num_1', 'Please select first digit',
+             value = 0, min = 0, max = 10, step = 1)
+numericInput('num_2', 'Please select second digit',
+             value = 0, min = 0, max = 10, step = 1)
+actionButton("go", "Go")   
+```
+
+
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Decision Boundary / Hyper-plane seperation
+
+```{r}
+# function to exract any two digits for classification
+digit_subset <- function(dig_1, dig_2, data_in) {
+          data_in %>%
+               mutate(class = ifelse(V1 == dig_1, dig_1, 
+                                     ifelse(V1 == dig_2, dig_2,
+                                            "other"))) %>%
+               dplyr::filter(class != "other") %>%
+               select(-V1)
+     }
+     
+randomVal <- eventReactive(input$go, {
+     data.frame(num_1 = input$num_1, num_2 = input$num_2)
+})
+
+train_d <- reactive({
+     randomVal1 <- randomVal()
+     num_1 <- randomVal1$num_1
+     num_2 <- randomVal1$num_2
+     train_data <- digit_subset(num_1, num_2, 
+     read.table("zip_train.gz"))
+})
+test_d <- reactive({
+     randomVal1 <- randomVal()
+     num_1 <- randomVal1$num_1
+     num_2 <- randomVal1$num_2
+     test_data <- digit_subset(num_1, num_2, 
+     read.table("zip_test.gz"))
+})
+
+
+
+renderPlot({
+        train_data <- train_d()
+        ans <- train_data %>%
+             select(-class) %>%
+             princomp(.)
+        
+        # lets look at the distribution of 7 versus other numbers in the 
+        #  first two principle components
+        autoplot(prcomp(train_data[,-257]), data = train_data, colour = "class") +
+             xlab("First Principle Component") +
+             ylab("Second Principle Component") 
+   })
+plotOutput("plot")
+
+# lets look at the distribution of 7 in the first three principle components     
+
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Summary of Linear Regression Fit
+
+```{r}
+# linear Regression model for binary class ------------------------------------------------------------------------
+renderPrint({
+     train_data <- train_d()
+     lm_fit <- lm(class ~ ., train_data)
+     summary(lm_fit)
+})
+
+
+
+# prediction based on linear model --------------------------------------------------------------------------------
+
+
+
+```
+
+### Summary Statistics on Predicion of Test Set
+
+```{r}
+renderPrint({
+     randomVal1 <- randomVal()
+     num_1 <- randomVal1$num_1
+     num_2 <- randomVal1$num_2
+     
+     train_data <- train_d()
+     test_data <- test_d()
+     lm_fit <- lm(class ~ ., train_data)
+     avrg <- (num_1 + num_2)/2
+     testing <- test_data %>%
+          select(-class)
+     
+     test_results <- lm_fit %>% 
+          predict.lm(., newdata=testing)
+
+     test_results <- data.frame(test_results) %>%
+     mutate(returned = 1*(test_results > avrg))
+     
+     te.er <- test_data %>%
+          mutate(bin_classes = 1*(class > as.character(avrg))) %>%
+          select(bin_classes) %>%
+          .$bin_classes
+     temp_er_table <- table(te.er, test_results$returned)
+     caret::confusionMatrix(temp_er_table)
+
+
+     # error.test = (temp_er_table[1,2] + temp_er_table[2,1])/
+     # length(test_results$returned)
+     # error.test
+})
+#temp_er_table
+```
+
+K-Nearest Neighbor Classification
+=======================================================================
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Principle Component Plane Class Distribution
+
+```{r}
+# function to exract any two digits for classification
+renderPlot({
+     train_data <- train_d()
+     test_data <- test_d()
+     train.dat <- train_data %>%
+             select(-class)
+     test.dat  <- test_data %>%
+          select(-class)
+     Y <- train_data$class
+     Y.test <- test_data$class
+     ###########  k = 1 ###########
+ans.knn.1 <- knn(train = train.dat, test=train.dat, 
+                 k=1, cl=Y)
+table(Y, ans.knn.1)
+ans.knn.1 <- knn(train = train.dat, test=test.dat, 
+                 k=1, cl=Y)
+k.t.e1 = table(Y.test, ans.knn.1)
+er.t.knn1 = (k.t.e1[1,2]+k.t.e1[2,1])/length(Y.test)
+
+
+###########  k = 3 ###########
+ans.knn.3 <- knn(train = train.dat, test=train.dat, 
+                 k=3, cl=Y)
+k.t.t3 = table(Y, ans.knn.3)
+er.tr.knn3 = (k.t.t3[1,2]+k.t.t3[2,1])/length(Y)
+er.tr.knn3
+
+ans.knn.3 <- knn(train = train.dat, test=test.dat, 
+                 k=3, cl=Y)
+k.t.e3 = table(Y.test, ans.knn.3)
+er.t.knn3 = (k.t.e3[1,2]+k.t.e3[2,1])/length(Y.test)
+er.t.knn3
+
+###########  k = 5 ###########
+ans.knn.5 <- knn(train = train.dat, test=train.dat, 
+                 k=5, cl=Y)
+k.t.t5 = table(Y, ans.knn.5)
+er.tr.knn5 = (k.t.t5[1,2]+k.t.t5[2,1])/length(Y)
+er.tr.knn5
+
+
+ans.knn.5 <- knn(train = train.dat, test=test.dat, 
+                 k=5, cl=Y)
+k.t.e5 = table(Y.test, ans.knn.5)
+er.t.knn5 = (k.t.e5[1,2]+k.t.e5[2,1])/length(Y.test)
+er.t.knn5
+
+
+###########  k = 7 ###########
+ans.knn.7 <- knn(train = train.dat, test=train.dat, 
+                 k=7, cl=Y)
+k.t.t7 = table(Y, ans.knn.7)
+er.tr.knn7 = (k.t.t7[1,2]+k.t.t7[2,1])/length(Y)
+er.tr.knn7
+
+ans.knn.7 <- knn(train = train.dat, test=test.dat, 
+                 k=7, cl=Y)
+k.t.e7 = table(Y.test, ans.knn.7)
+er.t.knn7 = (k.t.e7[1,2]+k.t.e7[2,1])/length(Y.test)
+er.t.knn7
+
+###########  k = 15 ###########
+ans.knn.15 <- knn(train = train.dat, test=train.dat, 
+                  k=15, cl=Y)
+k.t.t15 = table(Y, ans.knn.15)
+er.tr.knn15 = (k.t.t15[1,2]+k.t.t15[2,1])/length(Y)
+er.tr.knn15
+ 
+ans.knn.15 <- knn(train = train.dat, test=test.dat, 
+                  k=15, cl=Y)
+k.t.e15 = table(Y.test, ans.knn.15)
+er.t.knn15 = (k.t.e15[1,2]+k.t.e15[2,1])/length(Y.test)
+er.t.knn15
+
+
+# let's put this together in a plot like Figure 2.4 of the text
+
+train <- c(0, 9, 11, 19, 30)/1289
+test  <- c(8, 8, 8, 9, 12)/324
+k <- c(1,3,5,7,15)
+reg.test  <- 14/324
+reg.train <- 12/1289
+
+plot(k, test, xlab="k", ylab="", type="b",
+     lty=1, col=1, pch="x", ylim=c(0,0.05),
+     main="Error Rate as a Function of k")
+lines(k, train, lty=2, col=2, pch="o", type="b")
+lines(c(1,15), c(reg.test, reg.test), lty=3, col=3)
+lines(c(1,15), c(reg.train, reg.train), lty=4, col=4)
+legend(9, .03, c("NN - Test Data","NN - Training Data", "Reg - Test", "Reg - Train"),
+       lty=c(0,0,3,4), col=1:4, pch=c("x","o","", ""))
+
+})
+
+# lets look at the distribution of 7 in the first three principle components     
+
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Summary Statistics on Predicion of Test Set with K-NN
+
+```{r}
+# linear Regression model for binary class ------------------------------------------------------------------------
+renderPrint({
+     train_data <- train_d()
+     test_data <- test_d()
+     train.dat <- train_data %>%
+             select(-class)
+     test.dat  <- test_data %>%
+          select(-class)
+     Y <- train_data$class
+     Y.test <- test_data$class
+     ###########  k = 1 ###########
+ans.knn.1 <- knn(train = train.dat, test=train.dat, 
+                 k=1, cl=Y)
+table(Y, ans.knn.1)
+ans.knn.1 <- knn(train = train.dat, test=test.dat, 
+                 k=1, cl=Y)
+k.t.e1 = table(Y.test, ans.knn.1)
+
+     caret::confusionMatrix(k.t.e1 )
+})
+
+
+
+# prediction based on linear model --------------------------------------------------------------------------------
+
+
+
+```
+
+### Summary Statistics on Predicion of Test Set with Regression
+
+```{r}
+renderPrint({
+     randomVal1 <- randomVal()
+     num_1 <- randomVal1$num_1
+     num_2 <- randomVal1$num_2
+     
+     train_data <- train_d()
+     test_data <- test_d()
+     lm_fit <- lm(class ~ ., train_data)
+     avrg <- (num_1 + num_2)/2
+     testing <- test_data %>%
+          select(-class)
+     
+     test_results <- lm_fit %>% 
+          predict.lm(., newdata=testing)
+
+     test_results <- data.frame(test_results) %>%
+     mutate(returned = 1*(test_results > avrg))
+     
+     te.er <- test_data %>%
+          mutate(bin_classes = 1*(class > as.character(avrg))) %>%
+          select(bin_classes) %>%
+          .$bin_classes
+     temp_er_table <- table(te.er, test_results$returned)
+     caret::confusionMatrix(temp_er_table)
+
+
+     # error.test = (temp_er_table[1,2] + temp_er_table[2,1])/
+     # length(test_results$returned)
+     # error.test
+})
+#temp_er_table
+```
+
+Data Help and Notes
+=======================================================================
+
+In this app we will compare the classification performance of linear regression and k–nearest neighbor classification on handwritten zipcode data. Data can be found here:  www-stat.stanford.edu/ElemStatLearn
+
+Data Explantion: 
+Normalized handwritten digits, automatically scanned from envelopes by the U.S. Postal Service. The original scanned digits are binary and of different sizes and orientations; the
+images  here have been deslanted and size normalized, resulting in 16 x 16 grayscale images (Le Cun et al., 1990).
+
+The data are in two gzipped files, and each line consists of the digit id (0-9) followed by the 256 grayscale values.
+  
+Alternatively, the training data are available as separate files per digit (and hence without the digit identifier in each row)  
+
+The test set is notoriously "difficult", and a 2.5% error rate is excellent. These data were kindly made available by the neural network group at AT&T research labs (thanks to Yann Le Cunn). 
+
+There are 7291 training observations and 2007 test observations,
+distributed as follows:
+
+```{r}
+renderTable({
+     data.frame("Number_0" = c(1194, 359), "Number_1" = c(1005, 264),
+                "Number_2" = c(731, 198), "Number_3" = c(658, 166), 
+                "Number_4" = c(652, 200), "Number_5" = c(556, 160),
+                "Number_6" = c(664, 170), "Number_7" = c(645, 147),
+                "Number_8" = c(542, 166), "Number_9" = c(644, 177),
+                "Total" = c(7291, 2007), row.names = c("Train", "Test"))
+})
+
+```
+ 
